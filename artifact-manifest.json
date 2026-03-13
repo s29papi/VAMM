@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "project": "aleoveil-semaphore-port",
+  "upstream": {
+    "project": "semaphore",
+    "git_tag": "v4.13.0",
+    "artifact_version": "4.13.0",
+    "baseline_depth": 20
+  },
+  "aleo_v1_profile": {
+    "supported_depths": [
+      20
+    ],
+    "program_id": "veil_semaphore_v1.aleo",
+    "function_id": "validate_proof_depth_20",
+    "verifier_public_tuple": [
+      "merkleRoot",
+      "nullifier",
+      "message[0]",
+      "message[1]",
+      "scopeHash"
+    ],
+    "message_representation": "public_split128_bytes32",
+    "scope_representation": "keccak256(bytes32(normalized_scope)) >> 8",
+    "tree_model": "padded_lean_imt",
+    "visibility": {
+      "public": [
+        "groupId",
+        "merkleRoot",
+        "nullifier",
+        "message",
+        "scopeHash"
+      ],
+      "private_or_offchain": [
+        "identitySecret",
+        "merkleProofLength",
+        "merkleProofIndex",
+        "merkleProofSiblings",
+        "rawScope",
+        "relayAuthorization"
+      ]
+    },
+    "root_history_policy": "retain_all",
+    "member_removal_semantics": "replace_leaf_with_zero",
+    "batch_insertion": false
+  },
+  "relay_authorization": {
+    "fields": [
+      "program_id",
+      "function_id",
+      "group_id",
+      "merkle_root",
+      "nullifier",
+      "message",
+      "scope_hash",
+      "deadline",
+      "nonce"
+    ],
+    "verified_onchain_against_participant_account": false
+  }
+}

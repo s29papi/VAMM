@@ -1,0 +1,18 @@
+{
+  "name": "aleoveil",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:leo-runtime": "node --test --test-concurrency=1 tests/point_6_leo_runtime.test.mjs",
+    "start:relayer": "node src/relayer-server.mjs",
+    "testnet:deploy": "node scripts/testnet-deploy.mjs",
+    "testnet:smoke": "node scripts/testnet-smoke.mjs"
+  },
+  "dependencies": {
+    "@provablehq/sdk": "0.9.18",
+    "@semaphore-protocol/group": "4.13.0",
+    "@semaphore-protocol/identity": "4.13.0",
+    "ethers": "6.15.0"
+  }
+}

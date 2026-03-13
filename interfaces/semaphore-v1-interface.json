@@ -1,0 +1,35 @@
+{
+  "program_id": "veil_semaphore_v1.aleo",
+  "function_id": "validate_proof_depth_20",
+  "merkle_depth": 20,
+  "private_inputs": [
+    "identity_secret",
+    "merkle_proof_length",
+    "merkle_proof_index",
+    "merkle_proof_siblings"
+  ],
+  "public_inputs": [
+    "group_id",
+    "merkle_root",
+    "nullifier",
+    "message[0]",
+    "message[1]",
+    "scope_hash"
+  ],
+  "public_state": [
+    "initialized",
+    "owner",
+    "group_exists",
+    "group_admin",
+    "group_depth",
+    "group_active_members",
+    "group_next_index",
+    "group_root",
+    "group_root_valid",
+    "group_member",
+    "group_member_index",
+    "group_commitment_active",
+    "nullifier_used"
+  ],
+  "submission_model": "relayer_or_private_sponsor"
+}
