@@ -1,0 +1,26 @@
+{
+  "name": "@aleoveil/vamm-frontend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@provablehq/sdk": "0.9.18",
+    "@provablehq/aleo-wallet-adaptor-leo": "0.3.0-alpha.3",
+    "@provablehq/aleo-wallet-adaptor-puzzle": "0.3.0-alpha.3",
+    "@provablehq/aleo-wallet-adaptor-react": "0.3.0-alpha.3",
+    "@provablehq/aleo-wallet-adaptor-react-ui": "^0.3.0-alpha.3",
+    "@provablehq/aleo-wallet-adaptor-shield": "^0.3.0-alpha.3",
+    "@provablehq/aleo-wallet-adaptor-soter": "^0.3.0-alpha.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.4.1",
+    "vite": "^6.3.6"
+  }
+}

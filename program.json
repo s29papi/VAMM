@@ -1,9 +1,0 @@
-{
-  "program": "veil_semaphore_v1.aleo",
-  "version": "0.1.0",
-  "description": "AleoVeil Semaphore v1 foundation",
-  "license": "MIT",
-  "leo": "3.5.0",
-  "dependencies": null,
-  "dev_dependencies": null
-}

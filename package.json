@@ -3,16 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
-    "test:leo-runtime": "node --test --test-concurrency=1 tests/point_6_leo_runtime.test.mjs",
-    "start:relayer": "node src/relayer-server.mjs",
-    "testnet:deploy": "node scripts/testnet-deploy.mjs",
-    "testnet:smoke": "node scripts/testnet-smoke.mjs"
+    "deploy:private-agent-swap": "node --env-file=.env scripts/deploy-private-agent-swap.mjs",
+    "authorize:order": "node --env-file=.env scripts/authorize-order-direct.mjs",
+    "maker:execute-order": "node --env-file=.env scripts/execute-requester-order.mjs",
+    "vamm:cli": "node --env-file=.env interfaces/cli/vamm-agent-cli.mjs",
+    "vamm:tool": "node --env-file=.env interfaces/tool/vamm-agent-tool.mjs",
+    "vamm:frontend:dev": "npm --prefix interfaces/frontend run dev",
+    "vamm:frontend:build": "npm --prefix interfaces/frontend run build"
   },
   "dependencies": {
-    "@provablehq/sdk": "0.9.18",
-    "@semaphore-protocol/group": "4.13.0",
-    "@semaphore-protocol/identity": "4.13.0",
-    "ethers": "6.15.0"
+    "@provablehq/sdk": "0.9.18"
   }
 }
