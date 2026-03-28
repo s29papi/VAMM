@@ -106,6 +106,10 @@ function isChainTransactionId(transactionId) {
   return typeof transactionId === "string" && transactionId.startsWith("at1");
 }
 
+function buildProvableExplorerTransactionUrl(transactionId) {
+  return `https://testnet.explorer.provable.com/transaction/${transactionId}`;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
@@ -827,6 +831,7 @@ function SwapModalCard() {
         authorizationReference: authorizeTxId ?? authorizeWalletTxId,
         authorizationWalletReference: authorizeWalletTxId,
         readyForMakerFill: Boolean(authorizeTxId && approvalTxId),
+        makerExecutionStatus: authorizeTxId && approvalTxId && VAMM_MAKER_API_BASE_URL ? "pending" : "idle",
       });
       if (authorizeTxId && approvalTxId && VAMM_MAKER_API_BASE_URL) {
         updateSubmitState(
@@ -848,6 +853,7 @@ function SwapModalCard() {
               ? {
                 ...current,
                 makerExecution,
+                makerExecutionStatus: "success",
               }
               : current
           ));
@@ -855,7 +861,7 @@ function SwapModalCard() {
             setSubmitState,
             "success",
             makerExecution?.result?.settlementTx
-              ? "Payload executed by the VAMM maker API."
+              ? "Trade settled successfully through VAMM."
               : "Payload forwarded to the VAMM maker API.",
             {
               authorizeWalletTxId,
@@ -863,7 +869,7 @@ function SwapModalCard() {
               approvalWalletTxId,
               approvalTxId,
               debug: makerExecution?.result?.settlementTx
-                ? `settle_order tx: ${makerExecution.result.settlementTx}`
+                ? `Settlement confirmed in tx ${makerExecution.result.settlementTx}.`
                 : "",
             },
           );
@@ -872,6 +878,7 @@ function SwapModalCard() {
             current
               ? {
                 ...current,
+                makerExecutionStatus: "error",
                 makerExecutionError: String(apiError?.message ?? apiError),
               }
               : current
@@ -1040,8 +1047,35 @@ function SwapModalCard() {
 
         {submitState.message ? (
           <section className={`feedback feedback--${submitState.status}`} aria-live="polite">
+            {(handoff?.makerExecutionStatus === "pending" || handoff?.makerExecutionStatus === "success") ? (
+              <div className="feedback__vamm-header">
+                <strong>VAMM Execution</strong>
+                <span
+                  className={`handoff-card__status ${
+                    handoff?.makerExecutionStatus === "success"
+                      ? "handoff-card__status--success"
+                      : "handoff-card__status--pending"
+                  }`}
+                >
+                  {handoff?.makerExecutionStatus === "success" ? "Settled" : "Executing"}
+                </span>
+              </div>
+            ) : null}
             <div className="feedback__message">{submitState.message}</div>
             {submitState.debug ? <div className="feedback__debug">{submitState.debug}</div> : null}
+            {handoff?.makerExecution?.result?.settlementTx ? (
+              <div className="feedback__tx">
+                <span>settle_order tx</span>
+                <a
+                  className="feedback__link"
+                  href={buildProvableExplorerTransactionUrl(handoff.makerExecution.result.settlementTx)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {handoff.makerExecution.result.settlementTx}
+                </a>
+              </div>
+            ) : null}
             {submitState.authorizeTxId ? (
               <div className="feedback__tx">
                 <span>authorize_order chain tx</span>
@@ -1066,81 +1100,6 @@ function SwapModalCard() {
                 <code>{submitState.approvalWalletTxId}</code>
               </div>
             ) : null}
-          </section>
-        ) : null}
-
-        {handoff ? (
-          <section className="handoff-card" aria-label="Plain script handoff payload">
-            <div className="handoff-card__header">
-              <div>
-                <strong>Plain-Script Handoff</strong>
-                <span>
-                  {handoff.makerExecution?.result?.settlementTx
-                    ? "Forwarded to the VAMM API and executed with the requester key."
-                    : handoff.readyForMakerFill
-                    ? "Ready for maker fill. Use this payload with `npm run maker:execute-order`."
-                    : "Requester wallet steps completed. Real chain tx ids were not exposed by the wallet."}
-                </span>
-              </div>
-            </div>
-            <div className="handoff-card__refs">
-              {handoff.makerExecution?.result?.settlementTx ? (
-                <div className="handoff-card__refrow">
-                  <span>settle_order tx</span>
-                  <code className="handoff-card__ref">{handoff.makerExecution.result.settlementTx}</code>
-                </div>
-              ) : null}
-              {handoff.makerExecution?.result?.makerFundingTx ? (
-                <div className="handoff-card__refrow">
-                  <span>maker funding tx</span>
-                  <code className="handoff-card__ref">{handoff.makerExecution.result.makerFundingTx}</code>
-                </div>
-              ) : null}
-              {handoff.authorizationReference ? (
-                <div className="handoff-card__refrow">
-                  <span>{handoff.payload.authorize_tx_id ? "authorize_order chain tx" : "authorize_order wallet tx"}</span>
-                  <code className="handoff-card__ref">{handoff.authorizationReference}</code>
-                </div>
-              ) : null}
-              {handoff.authorizationWalletReference && handoff.payload.authorize_tx_id ? (
-                <div className="handoff-card__refrow">
-                  <span>authorize_order wallet tx</span>
-                  <code className="handoff-card__ref">{handoff.authorizationWalletReference}</code>
-                </div>
-              ) : null}
-              {handoff.approvalReference ? (
-                <div className="handoff-card__refrow">
-                  <span>{handoff.payload.approval_tx_id ? "approve_public chain tx" : "approve_public wallet tx"}</span>
-                  <code className="handoff-card__ref">{handoff.approvalReference}</code>
-                </div>
-              ) : null}
-              {handoff.approvalWalletReference && handoff.payload.approval_tx_id ? (
-                <div className="handoff-card__refrow">
-                  <span>approve_public wallet tx</span>
-                  <code className="handoff-card__ref">{handoff.approvalWalletReference}</code>
-                </div>
-              ) : null}
-            </div>
-            {handoff.makerExecutionError ? <div className="feedback__debug">{handoff.makerExecutionError}</div> : null}
-            <textarea readOnly value={handoff.payloadJson} />
-            <div className="handoff-card__actions">
-              <button
-                type="button"
-                className="primary-button"
-                onClick={async () => {
-                  await navigator.clipboard.writeText(handoff.payloadJson);
-                }}
-              >
-                Copy payload
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => downloadPayload(handoff.payload)}
-              >
-                Download JSON
-              </button>
-            </div>
           </section>
         ) : null}
       </form>
