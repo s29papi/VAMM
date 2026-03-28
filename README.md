@@ -186,14 +186,6 @@ The signature issue led to the delegated one-time ephemeral key model. That gave
 - wallet adapters differ in how they expose final transaction ids
 - the Hermes VAMM API is still a thin execution wrapper, not yet a full autonomous market-maker runtime
 
-## What's Next
-
-- add more VAMM strategies
-- reduce the remaining public approval surface
-- improve wallet-agnostic transaction tracking
-- make the strategy layer more developer-facing
-- evolve VAMM from a demo execution wrapper into a fuller programmable agent AMM system
-
 ## License
 
 This repository currently follows the project license in the repo root.
