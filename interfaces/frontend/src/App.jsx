@@ -543,7 +543,7 @@ function SwapModalCard() {
     triggerPrice: "",
     quickPricing: "Market",
     expiry: EXPIRY_PRESETS[0].label,
-    requesterTolerancePct: "20",
+    requesterTolerancePct: "2",
     deadlineSeconds: VAMM_FRONTEND_DEFAULTS.deadlineSeconds,
   });
   const [aleoUsdPrice, setAleoUsdPrice] = useState(null);
