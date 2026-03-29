@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AleoWalletProvider, useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import { LeoWalletAdapter } from "@provablehq/aleo-wallet-adaptor-leo";
 import { PuzzleWalletAdapter } from "@provablehq/aleo-wallet-adaptor-puzzle";
@@ -11,6 +11,11 @@ import {
   deriveTriggerPrice,
   getDefaultVammStrategy,
 } from "./strategies";
+import {
+  buildCreatePrivateCreditsRecordTransactionOptions,
+  buildSettlementInputBundle,
+  selectSpendableCreditsRecord as selectSpendableCreditsRecordHelper,
+} from "./vamm";
 import {
   ACTIVE_PROGRAM_ADDRESS,
   ACTIVE_PROGRAM_ID,
@@ -42,12 +47,16 @@ const EXPIRY_PRESETS = [
 const DEFAULT_TRANSACTION_FEE = 300_000;
 const VAMM_MAKER_API_BASE_URL = import.meta.env.VITE_VAMM_MAKER_API_BASE_URL ?? "";
 const VAMM_MAKER_API_KEY = import.meta.env.VITE_VAMM_MAKER_API_KEY ?? "";
+const VAMM_REVERSE_PREP_PATH =
+  import.meta.env.VITE_VAMM_REVERSE_PREP_PATH ?? "/api/vamm/reverse-requester-prep";
 const DEFAULT_VAMM_STRATEGY = getDefaultVammStrategy();
 const VAMM_FRONTEND_DEFAULTS = {
   network: "Aleo testnet",
   settlementStrategy: DEFAULT_VAMM_STRATEGY.label,
   deadlineSeconds: String(EXPIRY_PRESETS[0].seconds),
 };
+const VAMM_MODE_FORWARD = "forward";
+const VAMM_MODE_REVERSE = "reverse";
 
 function tokenGlyph(asset) {
   if (asset === "ALEO") return "A";
@@ -315,6 +324,38 @@ async function submitPayloadToVammMakerApi(payload) {
   return body;
 }
 
+async function submitPayloadToVammReversePrepApi(payload) {
+  if (!VAMM_MAKER_API_BASE_URL) {
+    return null;
+  }
+
+  const response = await fetch(
+    `${VAMM_MAKER_API_BASE_URL.replace(/\/$/, "")}${VAMM_REVERSE_PREP_PATH}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(VAMM_MAKER_API_KEY ? { Authorization: `Bearer ${VAMM_MAKER_API_KEY}` } : {}),
+      },
+      body: stringifyPayload({ payload }),
+    },
+  );
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok) {
+    const errorMessage = body?.error?.message ?? body?.error ?? `VAMM reverse API returned ${response.status}`;
+    throw new Error(errorMessage);
+  }
+
+  return body;
+}
+
 function TokenSelector({ asset, onChange, disabled = false }) {
   return (
     <label className={`token-pill${disabled ? " token-pill--locked" : ""}`}>
@@ -328,7 +369,41 @@ function TokenSelector({ asset, onChange, disabled = false }) {
   );
 }
 
+function sanitizeNumericInput(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const normalized = value.replace(/,/g, ".").replace(/[^\d.]/g, "");
+  const [integerPart, ...rest] = normalized.split(".");
+  const integer = integerPart.replace(/^0+(?=\d)/, "") || "0";
+  const decimal = rest.join("").slice(0, 6);
+  const hasTrailingDot = normalized.endsWith(".");
+  if (hasTrailingDot) {
+    return `${integer}.`;
+  }
+  const formatted = decimal ? `${integer}.${decimal}` : integer;
+  if (formatted === "0") {
+    return "0.00";
+  }
+  return formatted;
+}
+
+function formatNumericDisplay(value, decimals = 6) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return "0.00";
+  }
+  if (num === 0) {
+    return "0.00";
+  }
+  return num
+    .toFixed(Math.min(Math.max(decimals, 0), 6))
+    .replace(/(\.\d*?)0+$/, "$1")
+    .replace(/\.$/, "");
+}
+
 function SwapLeg({ label, amount, asset, amountField, assetField, onFieldChange, readOnly = false, routeLocked = false }) {
+  const isPlaceholder = !amount || amount === "0.00";
   return (
     <section className="swap-leg">
       <div className="swap-leg__label">{label}</div>
@@ -336,9 +411,13 @@ function SwapLeg({ label, amount, asset, amountField, assetField, onFieldChange,
         <label className="swap-leg__amount">
           <span className="sr-only">{label} amount</span>
           <input
-            value={amount}
-            onChange={onFieldChange(amountField)}
-            placeholder="0"
+            className={isPlaceholder ? "swap-leg__input--muted" : ""}
+            value={amount || "0.00"}
+            onChange={(event) => {
+              const sanitized = sanitizeNumericInput(event.target.value);
+              onFieldChange(amountField)({ target: { value: sanitized } });
+            }}
+            placeholder="0.00"
             readOnly={readOnly}
             aria-readonly={readOnly}
           />
@@ -353,6 +432,7 @@ function WalletToolbar() {
   const { wallets, wallet, address, connected, connecting, disconnect, selectWallet, connect } = useWallet();
   const [open, setOpen] = useState(false);
   const [pendingWalletName, setPendingWalletName] = useState(null);
+  const pickerRef = useRef(null);
 
   const availableWallets = wallets.filter((item) => item.readyState !== "Unsupported");
 
@@ -387,6 +467,29 @@ function WalletToolbar() {
     };
   }, [connect, pendingWalletName, wallet]);
 
+  useEffect(() => {
+    const handleExternalOpen = () => setOpen(true);
+    document.addEventListener("vamm-open-wallet-picker", handleExternalOpen);
+    return () => document.removeEventListener("vamm-open-wallet-picker", handleExternalOpen);
+  }, []);
+
+  useEffect(() => {
+    if (!open || !pickerRef.current) {
+      return undefined;
+    }
+
+    const handleDocumentClick = (event) => {
+      if (!pickerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleDocumentClick);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentClick);
+    };
+  }, [open]);
+
   const handleWalletSelect = (walletName) => {
     setPendingWalletName(walletName);
     selectWallet(walletName);
@@ -404,7 +507,7 @@ function WalletToolbar() {
       </button>
 
       {!connected && open ? (
-        <section className="wallet-picker" aria-label="Wallet provider picker">
+        <section ref={pickerRef} className="wallet-picker" aria-label="Wallet provider picker">
           {availableWallets.map((item) => (
             <button
               key={String(item.adapter.name)}
@@ -427,15 +530,16 @@ function WalletToolbar() {
 }
 
 function SwapModalCard() {
-  const { address, connected, executeTransaction, wallet } = useWallet();
+  const { address, connected, executeTransaction, wallet, connect, connecting } = useWallet();
   const routeLocked = true;
   const strategy = DEFAULT_VAMM_STRATEGY;
+  const [executionMode, setExecutionMode] = useState(VAMM_MODE_FORWARD);
 
   const [form, setForm] = useState({
     assetIn: "USDCx",
     assetOut: "ALEO",
-    amountIn: "0",
-    amountOutTarget: "0",
+    amountIn: "0.00",
+    amountOutTarget: "0.00",
     triggerPrice: "",
     quickPricing: "Market",
     expiry: EXPIRY_PRESETS[0].label,
@@ -446,6 +550,43 @@ function SwapModalCard() {
   const [triggerPriceManual, setTriggerPriceManual] = useState(false);
   const [submitState, setSubmitState] = useState({ status: "idle", message: "" });
   const [handoff, setHandoff] = useState(null);
+  const isReverseMode = executionMode === VAMM_MODE_REVERSE;
+  const routeLockedMessage = isReverseMode
+    ? "Click the center arrow to switch back to the forward path."
+    : "Click the center arrow to switch to the reverse path.";
+  const vammExecutionStage = isReverseMode ? handoff?.reverseExecutionStatus : handoff?.makerExecutionStatus;
+  const vammExecutionStageLabel = (() => {
+    const labels = {
+      preparing: "Generating Payload",
+      ready: "Ready",
+      pending: "Executing",
+      executing: "Executing",
+      success: "Settled",
+      error: "Failed",
+    };
+
+    return labels[vammExecutionStage] ?? null;
+  })();
+
+  useEffect(() => {
+    setForm((current) => {
+      const nextAssetIn = isReverseMode ? "ALEO" : "USDCx";
+      const nextAssetOut = isReverseMode ? "USDCx" : "ALEO";
+
+      if (current.assetIn === nextAssetIn && current.assetOut === nextAssetOut) {
+        return current;
+      }
+
+      return {
+        ...current,
+        assetIn: nextAssetIn,
+        assetOut: nextAssetOut,
+      };
+    });
+    setTriggerPriceManual(false);
+    setSubmitState({ status: "idle", message: "" });
+    setHandoff(null);
+  }, [isReverseMode]);
 
   const updateField = (key) => (event) => {
     const nextValue = event.target.value;
@@ -499,35 +640,476 @@ function SwapModalCard() {
   useEffect(() => {
     setForm((current) => ({
       ...current,
-      amountOutTarget: deriveQuoteAmount(current.amountIn, current.triggerPrice),
+      amountOutTarget: formatNumericDisplay(deriveQuoteAmount(current.amountIn, current.triggerPrice)),
     }));
   }, [form.amountIn, form.triggerPrice, form.assetIn, form.assetOut]);
 
+  const payoutBoundsTarget = isReverseMode ? form.amountIn : form.amountOutTarget;
   const payoutBounds = useMemo(
-    () => deriveSymmetricPayoutBounds(form.amountOutTarget, form.requesterTolerancePct),
-    [form.amountOutTarget, form.requesterTolerancePct],
+    () => deriveSymmetricPayoutBounds(payoutBoundsTarget, form.requesterTolerancePct),
+    [payoutBoundsTarget, form.requesterTolerancePct],
   );
 
   const flipAssets = () => {
-    if (routeLocked) {
-      return;
-    }
-    setForm((current) => ({
-      ...current,
-      assetIn: current.assetOut,
-      assetOut: current.assetIn,
-      amountIn: current.amountOutTarget,
-    }));
+    setExecutionMode((current) => (
+      current === VAMM_MODE_FORWARD ? VAMM_MODE_REVERSE : VAMM_MODE_FORWARD
+    ));
   };
 
-  const handleSubmit = async (event) => {
+  const fetchCreditsRecords = async () => {
+    const requestRecords = wallet?.adapter?.requestRecords;
+    if (typeof requestRecords !== "function") {
+      throw new Error("This wallet does not expose record requests.");
+    }
+
+    const records = await requestRecords.call(wallet.adapter, "credits.aleo", true);
+    console.log("reverse private record requestRecords raw:", records);
+    try {
+      console.log("reverse private record requestRecords JSON:", JSON.stringify(records, null, 2));
+    } catch (jsonError) {
+      console.log("reverse private record requestRecords JSON failed:", String(jsonError?.message ?? jsonError));
+    }
+    return records;
+  };
+
+  const selectReverseSettlementRecord = async (payload) => {
+    const records = await fetchCreditsRecords();
+    const spendableRecord = selectSpendableCreditsRecordHelper(records, {
+      minimumMicrocredits: BigInt(String(payload.min_payout)),
+      maximumMicrocredits: BigInt(String(payload.max_payout)),
+    });
+    console.log("reverse private record selected spendable record:", spendableRecord);
+    return spendableRecord;
+  };
+
+  const waitForReverseSettlementRecord = async (payload, options = {}) => {
+    const attempts = options.attempts ?? 6;
+    const intervalMs = options.intervalMs ?? 2_000;
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const spendableRecord = await selectReverseSettlementRecord(payload);
+      if (spendableRecord) {
+        return spendableRecord;
+      }
+
+      if (attempt < attempts - 1) {
+        await sleep(intervalMs);
+      }
+    }
+
+    return null;
+  };
+
+  const executeReverseSettlement = async (payload, reversePrepResponse) => {
+    const reverseAuthorizeTxId =
+      reversePrepResponse?.result?.authorizationTxId ??
+      reversePrepResponse?.result?.requesterAuthorizationTx ??
+      reversePrepResponse?.result?.authorizeTxId ??
+      null;
+    const reverseApprovalTxId =
+      reversePrepResponse?.result?.approvalTxId ??
+      reversePrepResponse?.result?.requesterApprovalTx ??
+      null;
+    const spendableRecord = await selectReverseSettlementRecord(payload);
+
+    if (!spendableRecord) {
+      setHandoff((current) => (
+        current
+          ? {
+            ...current,
+            reverseExecutionStatus: "ready",
+            reverseNeedsPrivateRecord: true,
+          }
+          : current
+      ));
+      updateSubmitState(
+        setSubmitState,
+        "pending",
+        "Settlement is ready, but your wallet needs a matching private ALEO record before it can continue.",
+        {
+          authorizeTxId: reverseAuthorizeTxId,
+          approvalTxId: reverseApprovalTxId,
+          debug: "VAMM requester prep is complete. Create the required private ALEO record now and settlement will continue automatically.",
+        },
+      );
+      return null;
+    }
+
+    const settlementExecution = buildSettlementInputBundle(payload, {
+      privateCreditsRecord: spendableRecord.recordPlaintext,
+      program: reversePrepResponse?.result?.program ?? reversePrepResponse?.program ?? payload?.program ?? ACTIVE_PROGRAM_ID,
+      requesterPublicAddress: payload.requester,
+      requesterPrivateAddress: address,
+      recipientPublicAddress: payload.recipient,
+      recipientPrivateAddress: payload.recipient,
+    });
+
+    setHandoff((current) => (
+      current
+        ? {
+          ...current,
+          reverseExecutionStatus: "executing",
+          reverseNeedsPrivateRecord: false,
+          reverseSelectedRecord: spendableRecord,
+        }
+        : current
+    ));
+
+    updateSubmitState(
+      setSubmitState,
+      "pending",
+      "Executing settlement from your wallet...",
+      {
+        authorizeTxId: reverseAuthorizeTxId,
+        approvalTxId: reverseApprovalTxId,
+      },
+    );
+
+    const settlementResult = await executeTransaction({
+      ...settlementExecution,
+      fee: settlementExecution.fee ?? DEFAULT_TRANSACTION_FEE,
+      privateFee: settlementExecution.privateFee ?? false,
+    });
+
+    console.log("wallet.executeTransaction reverse settlement raw result", {
+      walletName: wallet?.adapter?.name,
+      result: settlementResult,
+      extractedTransactionId: extractPossibleTransactionId(settlementResult),
+    });
+
+    const settlementTxId = extractPossibleTransactionId(settlementResult);
+    if (!settlementTxId) {
+      throw new Error("Wallet did not return a reverse settlement transaction ID.");
+    }
+
+    const settlementSubmission = await waitForVisibleTransaction(
+      wallet,
+      settlementTxId,
+      ({ type, transactionId, walletTransactionId, status, elapsedMs }) => {
+        if (type === "resolved") {
+          setHandoff((current) => (
+            current
+              ? {
+                ...current,
+                reverseExecutionStatus: "success",
+                reverseSettlementTxId: transactionId,
+                reverseSettlementWalletTxId: walletTransactionId,
+              }
+              : current
+          ));
+          return;
+        }
+
+        if (type === "accepted" || type === "unresolved") {
+          setHandoff((current) => (
+            current
+              ? {
+                ...current,
+                reverseExecutionStatus: "pending",
+                reverseSettlementTxId: type === "accepted" ? transactionId : null,
+                reverseSettlementWalletTxId: walletTransactionId ?? settlementTxId,
+              }
+              : current
+          ));
+          return;
+        }
+
+        if (type === "pending" && Number.isFinite(elapsedMs)) {
+          updateSubmitState(
+            setSubmitState,
+            "pending",
+            `Executing settlement from your wallet...${status ? ` (${status})` : ""}${Number.isFinite(elapsedMs) ? ` after ${Math.floor(elapsedMs / 1000)}s` : ""}`,
+            {
+              authorizeTxId: reverseAuthorizeTxId,
+              approvalTxId: reverseApprovalTxId,
+            },
+          );
+        }
+      },
+    );
+
+    setHandoff((current) => (
+      current
+        ? {
+          ...current,
+          reverseExecutionStatus: "success",
+          reverseSettlementTxId: settlementSubmission.chainTransactionId ?? settlementTxId,
+          reverseSettlementWalletTxId: settlementSubmission.walletTransactionId ?? settlementTxId,
+          reverseSettlementResult: settlementResult,
+        }
+        : current
+    ));
+
+    updateSubmitState(
+      setSubmitState,
+      "success",
+      settlementSubmission.chainTransactionId
+        ? "Reverse trade settled successfully through VAMM."
+        : "Reverse payload executed from your wallet.",
+      {
+        authorizeTxId: reverseAuthorizeTxId,
+        approvalTxId: reverseApprovalTxId,
+        debug: settlementSubmission.chainTransactionId
+          ? `Settlement confirmed in tx ${settlementSubmission.chainTransactionId}.`
+          : "",
+      },
+    );
+
+    return settlementSubmission;
+  };
+
+  const createPrivateCreditsRecordAndContinue = async () => {
+    if (!handoff?.payload || !address) {
+      return;
+    }
+
+    try {
+      const exactRecordAmount = BigInt(String(handoff.payload.max_payout)) === BigInt(String(handoff.payload.min_payout))
+        ? BigInt(String(handoff.payload.max_payout))
+        : BigInt(toMicroAmount(Number(form.amountIn)));
+
+      setHandoff((current) => (
+        current
+          ? {
+            ...current,
+            reverseExecutionStatus: "preparing",
+          }
+          : current
+      ));
+      updateSubmitState(
+        setSubmitState,
+        "pending",
+        "Creating a private ALEO record in your wallet...",
+        {
+          authorizeTxId: handoff.authorizeTxId ?? null,
+          approvalTxId: handoff.approvalTxId ?? null,
+        },
+      );
+
+      const createRecordOptions = buildCreatePrivateCreditsRecordTransactionOptions({
+        ownerAddress: address,
+        amountMicrocredits: exactRecordAmount,
+        fee: DEFAULT_TRANSACTION_FEE,
+        privateFee: false,
+      });
+      const creationResult = await executeTransaction(createRecordOptions);
+      const creationTxId = extractPossibleTransactionId(creationResult);
+      if (!creationTxId) {
+        throw new Error("Wallet did not return a create-record transaction ID.");
+      }
+
+      updateSubmitState(
+        setSubmitState,
+        "pending",
+        "Waiting for the new private ALEO record to appear in your wallet...",
+        {
+          authorizeTxId: handoff.authorizeTxId ?? null,
+          approvalTxId: handoff.approvalTxId ?? null,
+        },
+      );
+
+      await waitForVisibleTransaction(wallet, creationTxId);
+      const spendableRecord = await waitForReverseSettlementRecord(handoff.payload, {
+        attempts: 8,
+        intervalMs: 2_000,
+      });
+
+      setHandoff((current) => (
+        current
+          ? {
+            ...current,
+            reverseFundingTxId: creationTxId,
+            reverseExecutionStatus: "ready",
+            reverseSelectedRecord: spendableRecord,
+          }
+          : current
+      ));
+
+      await executeReverseSettlement(handoff.payload, handoff.reversePrepResponse);
+    } catch (error) {
+      console.error("Reverse private record creation failed", error);
+      setHandoff((current) => (
+        current
+          ? {
+            ...current,
+            reverseExecutionStatus: "error",
+            reverseExecutionError: String(error?.message ?? error),
+          }
+          : current
+      ));
+      setSubmitState({
+        status: "error",
+        message: `Creating a private ALEO record failed: ${String(error?.message ?? error)}`,
+      });
+    }
+  };
+
+  const handleReverseSubmit = async (event) => {
     event.preventDefault();
 
     setSubmitState({ status: "idle", message: "" });
     setHandoff(null);
 
     if (!connected || !address) {
-      setSubmitState({ status: "error", message: "Connect an Aleo wallet before confirming." });
+      setSubmitState({ status: "idle", message: "" });
+      document.dispatchEvent(new Event("vamm-open-wallet-picker"));
+      return;
+    }
+
+    if (typeof executeTransaction !== "function") {
+      setSubmitState({ status: "error", message: "The connected wallet does not expose transaction execution." });
+      return;
+    }
+
+    if (!VAMM_MAKER_API_BASE_URL) {
+      setSubmitState({
+        status: "error",
+        message: "Set VITE_VAMM_MAKER_API_BASE_URL to enable reverse VAMM execution.",
+      });
+      return;
+    }
+
+    if (form.assetIn !== "ALEO" || form.assetOut !== "USDCx") {
+      setSubmitState({
+        status: "error",
+        message: "Reverse mode expects the user to sell ALEO for USDCx.",
+      });
+      return;
+    }
+
+    const sellAmount = Number(form.amountIn);
+    const minPayout = Number(payoutBounds.min);
+    const maxPayout = Number(payoutBounds.max);
+
+    if (!Number.isFinite(sellAmount) || sellAmount <= 0) {
+      setSubmitState({ status: "error", message: "Enter a valid ALEO sell amount." });
+      return;
+    }
+
+    if (!Number.isFinite(minPayout) || !Number.isFinite(maxPayout) || maxPayout <= 0 || minPayout < 0) {
+      setSubmitState({ status: "error", message: "The reverse ALEO settlement band must produce a valid range." });
+      return;
+    }
+
+    if (minPayout > maxPayout) {
+      setSubmitState({ status: "error", message: "Reverse ALEO settlement minimum cannot exceed the maximum." });
+      return;
+    }
+
+    try {
+      updateSubmitState(setSubmitState, "pending", "Generating payload with VAMM...");
+      setHandoff({
+        mode: VAMM_MODE_REVERSE,
+        reverseExecutionStatus: "preparing",
+        reverseSettlementTxId: null,
+        reverseSettlementWalletTxId: null,
+        readyForSettlement: false,
+      });
+
+      const latestTimestamp = await getLatestBlockTimestamp();
+      const orderId = Date.now();
+      const sellAmountMicro = toMicroAmount(sellAmount);
+      const buyAmountMicro = toMicroAmount(Number(form.amountOutTarget));
+      const minPayoutMicrocredits = toMicroAmount(minPayout);
+      const maxPayoutMicrocredits = toMicroAmount(maxPayout);
+      const expiryTimestamp = latestTimestamp + Number(form.deadlineSeconds);
+
+      const reversePrepRequest = {
+        order_id: orderId,
+        direction: "reverse",
+        executor_address: address,
+        asset_in: form.assetIn,
+        asset_out: form.assetOut,
+        amount_in: sellAmountMicro.toString(),
+        amount_out_target: buyAmountMicro.toString(),
+        approval_amount: buyAmountMicro.toString(),
+        trigger_price: form.triggerPrice,
+        expiry_timestamp: expiryTimestamp,
+        min_payout: minPayoutMicrocredits.toString(),
+        max_payout: maxPayoutMicrocredits.toString(),
+        requester_tolerance_pct: form.requesterTolerancePct,
+        deadline_seconds: form.deadlineSeconds,
+        settlement_strategy: strategy.label,
+        mode: VAMM_MODE_REVERSE,
+      };
+
+      const reversePrepResponse = await submitPayloadToVammReversePrepApi(reversePrepRequest);
+      const reversePayload =
+        reversePrepResponse?.payload ??
+        reversePrepResponse?.result?.payload ??
+        reversePrepResponse?.data?.payload ??
+        reversePrepResponse ??
+        reversePrepRequest;
+      const reverseAuthorizeTxId =
+        reversePrepResponse?.authorize_tx_id ??
+        reversePrepResponse?.authorizeTxId ??
+        reversePrepResponse?.result?.authorize_tx_id ??
+        reversePrepResponse?.result?.authorizeTxId ??
+        reversePrepResponse?.result?.authorizationTxId ??
+        reversePrepResponse?.result?.requesterAuthorizationTx ??
+        null;
+      const reverseApprovalTxId =
+        reversePrepResponse?.approval_tx_id ??
+        reversePrepResponse?.approvalTxId ??
+        reversePrepResponse?.result?.approval_tx_id ??
+        reversePrepResponse?.result?.approvalTxId ??
+        reversePrepResponse?.result?.requesterApprovalTx ??
+        null;
+      setHandoff({
+        mode: VAMM_MODE_REVERSE,
+        payload: reversePayload,
+        payloadJson: stringifyPayload(reversePayload),
+        reversePrepResponse,
+        reverseExecutionStatus: "ready",
+        reverseSettlementTxId: null,
+        reverseSettlementWalletTxId: null,
+        reverseNeedsPrivateRecord: false,
+        authorizeTxId: reverseAuthorizeTxId,
+        approvalTxId: reverseApprovalTxId,
+        readyForSettlement: true,
+      });
+
+      updateSubmitState(
+        setSubmitState,
+        "pending",
+        "Payload ready. Checking your wallet for a spendable private ALEO record...",
+        {
+          authorizeTxId: reverseAuthorizeTxId,
+          approvalTxId: reverseApprovalTxId,
+        },
+      );
+      await executeReverseSettlement(reversePayload, reversePrepResponse);
+    } catch (error) {
+      console.error("Reverse VAMM settlement failed", error);
+      setHandoff((current) => (
+        current
+          ? {
+            ...current,
+            reverseExecutionStatus: "error",
+            reverseExecutionError: String(error?.message ?? error),
+          }
+          : current
+      ));
+      setSubmitState({
+        status: "error",
+        message: `Reverse VAMM execution failed: ${String(error?.message ?? error)}`,
+      });
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    if (executionMode === VAMM_MODE_REVERSE) {
+      return handleReverseSubmit(event);
+    }
+
+    setSubmitState({ status: "idle", message: "" });
+    setHandoff(null);
+
+    if (!connected || !address) {
+      // setSubmitState({ status: "error", message: "Connect an Aleo wallet before confirming." });
+      document.dispatchEvent(new Event("vamm-open-wallet-picker"));
       return;
     }
 
@@ -928,6 +1510,11 @@ function SwapModalCard() {
       <header className="swap-modal__header">
         <div>
           <h1>Swap</h1>
+          <p className="swap-modal__subtitle">
+            {isReverseMode
+              ? "Reverse mode asks VAMM to prepare the payload, then the wallet executes settlement."
+              : "Current mode keeps the existing requester-led USDCx -> ALEO flow intact."}
+          </p>
         </div>
       </header>
 
@@ -984,8 +1571,7 @@ function SwapModalCard() {
               className="switch-button"
               onClick={flipAssets}
               aria-label="Flip assets"
-              disabled={routeLocked}
-              title={routeLocked ? "Current maker script only supports USDCx to ALEO requester flow." : undefined}
+              title={routeLockedMessage}
             >
               ↓
             </button>
@@ -1004,7 +1590,9 @@ function SwapModalCard() {
         </div>
 
         <section className="payout-band-fixed">
-          <div className="payout-band-fixed__label">Requester payout band</div>
+          <div className="payout-band-fixed__label">
+            {isReverseMode ? "ALEO settlement band" : "Requester payout band"}
+          </div>
           <div className="payout-band-fixed__row">
             <label className="range-input range-input--single">
               <span>+/-</span>
@@ -1042,28 +1630,67 @@ function SwapModalCard() {
         </div>
 
         <button type="submit" className="confirm-button" disabled={submitState.status === "pending"}>
-          {submitState.status === "pending" ? "Working..." : "Confirm"}
+          {submitState.status === "pending"
+            ? "Working..."
+            : connected
+              ? "Swap"
+              : "Connect"}
         </button>
 
         {submitState.message ? (
           <section className={`feedback feedback--${submitState.status}`} aria-live="polite">
-            {(handoff?.makerExecutionStatus === "pending" || handoff?.makerExecutionStatus === "success") ? (
+            {vammExecutionStageLabel ? (
               <div className="feedback__vamm-header">
                 <strong>VAMM Execution</strong>
                 <span
                   className={`handoff-card__status ${
-                    handoff?.makerExecutionStatus === "success"
+                    vammExecutionStage === "success"
                       ? "handoff-card__status--success"
-                      : "handoff-card__status--pending"
+                      : vammExecutionStage === "error"
+                        ? "handoff-card__status--error"
+                        : "handoff-card__status--pending"
                   }`}
                 >
-                  {handoff?.makerExecutionStatus === "success" ? "Settled" : "Executing"}
+                  {vammExecutionStageLabel}
                 </span>
               </div>
             ) : null}
             <div className="feedback__message">{submitState.message}</div>
             {submitState.debug ? <div className="feedback__debug">{submitState.debug}</div> : null}
-            {handoff?.makerExecution?.result?.settlementTx ? (
+            {handoff?.mode === VAMM_MODE_REVERSE && handoff?.reverseNeedsPrivateRecord ? (
+              <div className="feedback__actions">
+                <button type="button" className="feedback__action-button" onClick={createPrivateCreditsRecordAndContinue}>
+                  Create Matching Private ALEO Record
+                </button>
+              </div>
+            ) : null}
+            {handoff?.mode === VAMM_MODE_REVERSE && handoff?.reverseSettlementTxId ? (
+              <div className="feedback__tx">
+                <span>settle_order tx</span>
+                <a
+                  className="feedback__link"
+                  href={buildProvableExplorerTransactionUrl(handoff.reverseSettlementTxId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {handoff.reverseSettlementTxId}
+                </a>
+              </div>
+            ) : null}
+            {handoff?.mode === VAMM_MODE_REVERSE && handoff?.reverseFundingTxId ? (
+              <div className="feedback__tx">
+                <span>private record creation tx</span>
+                <a
+                  className="feedback__link"
+                  href={buildProvableExplorerTransactionUrl(handoff.reverseFundingTxId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {handoff.reverseFundingTxId}
+                </a>
+              </div>
+            ) : null}
+            {handoff?.mode !== VAMM_MODE_REVERSE && handoff?.makerExecution?.result?.settlementTx ? (
               <div className="feedback__tx">
                 <span>settle_order tx</span>
                 <a

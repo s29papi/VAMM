@@ -49,6 +49,7 @@ body {
   font-size: 24px;
 }
 
+
 button,
 input,
 select,
@@ -78,10 +79,16 @@ select {
 
 .app-shell {
   min-height: 100vh;
-  padding: 24px 20px 32px;
+  padding: 40px 20px 32px;
   position: relative;
   display: grid;
   place-items: center;
+}
+
+.swap-modal {
+  transform: scale(0.74);
+  transform-origin: center top;
+  margin-top: 40px;
 }
 
 .app-shell--crash {
@@ -133,6 +140,16 @@ select {
   text-transform: uppercase;
 }
 
+.page-network-pill {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+
+.page-wallet-button {
+  padding: 4px 10px;
+  font-size: 0.76rem;
+}
+
 .page-center {
   width: 100%;
   min-height: 100vh;
@@ -149,8 +166,8 @@ select {
   border: 1px solid rgba(96, 165, 250, 0.24);
   background: linear-gradient(180deg, rgba(59, 130, 246, 0.35), rgba(29, 78, 216, 0.42));
   color: var(--vamm-text);
-  padding: 12px 20px;
-  font-size: 1.36rem;
+  padding: 6px 12px;
+  font-size: 0.88rem;
   height: auto;
   line-height: 1;
   box-shadow: none;
@@ -226,6 +243,14 @@ select {
   margin: 12px 0 0;
   font-size: 2.2rem;
   line-height: 0.95;
+}
+
+.swap-modal__subtitle {
+  margin: 8px 0 0;
+  max-width: 320px;
+  color: var(--vamm-text-dim);
+  font-size: 0.92rem;
+  line-height: 1.45;
 }
 
 .swap-modal__stack {
@@ -424,6 +449,11 @@ select {
   line-height: 0.95;
   padding: 0;
   outline: none;
+  transition: color 0.2s ease;
+}
+
+.swap-leg__amount input.swap-leg__input--muted {
+  color: var(--vamm-text-dim);
 }
 
 .swap-legs__switch {
@@ -661,6 +691,19 @@ select {
   font-size: 0.94rem;
 }
 
+.feedback__actions {
+  margin-top: 12px;
+}
+
+.feedback__action-button {
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--vamm-text);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+}
+
 .feedback__tx {
   display: grid;
   gap: 4px;
@@ -865,6 +908,10 @@ select {
   .swap-leg__row,
   .expiry-row {
     display: grid;
+  }
+
+  .swap-modal__header {
+    gap: 14px;
   }
 
   .preset-row--compact {
