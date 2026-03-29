@@ -45,9 +45,6 @@ const EXPIRY_PRESETS = [
   { label: "1 day", seconds: 86400 },
 ];
 const DEFAULT_TRANSACTION_FEE = 300_000;
-const VAMM_MAKER_API_BASE_URL = import.meta.env.VITE_VAMM_MAKER_API_BASE_URL ?? "";
-const VAMM_REVERSE_PREP_PATH =
-  import.meta.env.VITE_VAMM_REVERSE_PREP_PATH ?? "/api/vamm/reverse-requester-prep";
 const DEFAULT_VAMM_STRATEGY = getDefaultVammStrategy();
 const VAMM_FRONTEND_DEFAULTS = {
   network: "Aleo testnet",
@@ -304,11 +301,7 @@ function downloadPayload(payload) {
 }
 
 async function submitPayloadToVammMakerApi(payload) {
-  if (!VAMM_MAKER_API_BASE_URL) {
-    return null;
-  }
-
-  const response = await fetch(`${VAMM_MAKER_API_BASE_URL.replace(/\/$/, "")}/api/vamm/execute-order`, {
+  const response = await fetch("/api/vamm/execute-order", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -332,20 +325,13 @@ async function submitPayloadToVammMakerApi(payload) {
 }
 
 async function submitPayloadToVammReversePrepApi(payload) {
-  if (!VAMM_MAKER_API_BASE_URL) {
-    return null;
-  }
-
-  const response = await fetch(
-    `${VAMM_MAKER_API_BASE_URL.replace(/\/$/, "")}${VAMM_REVERSE_PREP_PATH}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: stringifyPayload({ payload }),
+  const response = await fetch("/api/vamm/reverse-requester-prep", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
-  );
+    body: stringifyPayload({ payload }),
+  });
 
   let body = null;
   try {
@@ -1019,14 +1005,6 @@ function SwapModalCard() {
       return;
     }
 
-    if (!VAMM_MAKER_API_BASE_URL) {
-      setSubmitState({
-        status: "error",
-        message: "Set VITE_VAMM_MAKER_API_BASE_URL to enable reverse VAMM execution.",
-      });
-      return;
-    }
-
     if (form.assetIn !== "ALEO" || form.assetOut !== "USDCx") {
       setSubmitState({
         status: "error",
@@ -1471,9 +1449,9 @@ function SwapModalCard() {
         authorizationReference: authorizeTxId ?? authorizeWalletTxId,
         authorizationWalletReference: authorizeWalletTxId,
         readyForMakerFill: Boolean(authorizeTxId && approvalTxId),
-        makerExecutionStatus: authorizeTxId && approvalTxId && VAMM_MAKER_API_BASE_URL ? "pending" : "idle",
+        makerExecutionStatus: authorizeTxId && approvalTxId ? "pending" : "idle",
       });
-      if (authorizeTxId && approvalTxId && VAMM_MAKER_API_BASE_URL) {
+      if (authorizeTxId && approvalTxId) {
         updateSubmitState(
           setSubmitState,
           "pending",
@@ -1541,7 +1519,7 @@ function SwapModalCard() {
           setSubmitState,
           "success",
           authorizeTxId && approvalTxId
-            ? "Ready for maker fill."
+            ? "Ready for maker fill. The proxy route will forward the payload."
             : "Requester wallet steps completed, but the wallet did not expose real chain tx ids.",
           {
             authorizeWalletTxId,
@@ -1550,7 +1528,7 @@ function SwapModalCard() {
             approvalTxId,
             debug: compactDisplayText(
               authorizeTxId && approvalTxId
-                ? (VAMM_MAKER_API_BASE_URL ? "" : "Set VITE_VAMM_MAKER_API_BASE_URL to forward payloads to the VAMM API automatically.")
+                ? "Payload is ready and will be forwarded through the Vercel proxy if no direct maker base URL is configured."
                 : "Payload includes wallet submission ids. The maker script still needs real on-chain tx ids if it verifies them on the network.",
               400,
             ),
