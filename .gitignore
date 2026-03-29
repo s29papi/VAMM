@@ -4,4 +4,5 @@ outputs/
 .env
 .env.*
 !.env.testnet.example
+!interfaces/frontend/.env.example
 external/

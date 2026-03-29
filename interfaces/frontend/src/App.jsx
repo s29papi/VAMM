@@ -46,7 +46,6 @@ const EXPIRY_PRESETS = [
 ];
 const DEFAULT_TRANSACTION_FEE = 300_000;
 const VAMM_MAKER_API_BASE_URL = import.meta.env.VITE_VAMM_MAKER_API_BASE_URL ?? "";
-const VAMM_MAKER_API_KEY = import.meta.env.VITE_VAMM_MAKER_API_KEY ?? "";
 const VAMM_REVERSE_PREP_PATH =
   import.meta.env.VITE_VAMM_REVERSE_PREP_PATH ?? "/api/vamm/reverse-requester-prep";
 const DEFAULT_VAMM_STRATEGY = getDefaultVammStrategy();
@@ -107,8 +106,17 @@ function stringifyPayload(value) {
   );
 }
 
+function compactDisplayText(value, maxLength = 220) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function updateSubmitState(setSubmitState, status, message, extra = {}) {
-  setSubmitState({ status, message, ...extra });
+  setSubmitState({ status, message: compactDisplayText(message), ...extra });
 }
 
 function isChainTransactionId(transactionId) {
@@ -304,7 +312,6 @@ async function submitPayloadToVammMakerApi(payload) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(VAMM_MAKER_API_KEY ? { Authorization: `Bearer ${VAMM_MAKER_API_KEY}` } : {}),
     },
     body: stringifyPayload({ payload }),
   });
@@ -335,7 +342,6 @@ async function submitPayloadToVammReversePrepApi(payload) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(VAMM_MAKER_API_KEY ? { Authorization: `Bearer ${VAMM_MAKER_API_KEY}` } : {}),
       },
       body: stringifyPayload({ payload }),
     },
@@ -369,23 +375,31 @@ function TokenSelector({ asset, onChange, disabled = false }) {
   );
 }
 
+const PLACEHOLDER_PATTERN = /^(?:0\.00|)$/;
+
 function sanitizeNumericInput(value) {
-  if (typeof value !== "string") {
+  const stringValue = typeof value === "string" ? value : String(value ?? "");
+  const normalized = stringValue.replace(/,/g, ".").replace(/[^\d.]/g, "");
+  if (!normalized) {
     return "";
   }
-  const normalized = value.replace(/,/g, ".").replace(/[^\d.]/g, "");
-  const [integerPart, ...rest] = normalized.split(".");
-  const integer = integerPart.replace(/^0+(?=\d)/, "") || "0";
-  const decimal = rest.join("").slice(0, 6);
+
   const hasTrailingDot = normalized.endsWith(".");
-  if (hasTrailingDot) {
-    return `${integer}.`;
+  const [integerPart = "", ...decimalSegments] = normalized.split(".");
+  const decimalPart = decimalSegments.join("");
+  const truncatedDecimals = decimalPart.slice(0, 6);
+  const integerValue = integerPart.replace(/^0+(?=\d)/, "");
+  const normalizedInteger = integerValue || (truncatedDecimals ? "0" : "");
+
+  if (hasTrailingDot && !decimalPart) {
+    return `${normalizedInteger || "0"}.`;
   }
-  const formatted = decimal ? `${integer}.${decimal}` : integer;
-  if (formatted === "0") {
-    return "0.00";
+
+  if (truncatedDecimals) {
+    return `${normalizedInteger || "0"}.${truncatedDecimals}`;
   }
-  return formatted;
+
+  return normalizedInteger;
 }
 
 function formatNumericDisplay(value, decimals = 6) {
@@ -402,8 +416,19 @@ function formatNumericDisplay(value, decimals = 6) {
     .replace(/\.$/, "");
 }
 
-function SwapLeg({ label, amount, asset, amountField, assetField, onFieldChange, readOnly = false, routeLocked = false }) {
-  const isPlaceholder = !amount || amount === "0.00";
+function SwapLeg({
+  label,
+  amount,
+  asset,
+  amountField,
+  assetField,
+  onFieldChange,
+  readOnly = false,
+  routeLocked = false,
+  onFocus,
+  onBlur,
+}) {
+  const isPlaceholder = !amount || PLACEHOLDER_PATTERN.test(amount);
   return (
     <section className="swap-leg">
       <div className="swap-leg__label">{label}</div>
@@ -412,13 +437,15 @@ function SwapLeg({ label, amount, asset, amountField, assetField, onFieldChange,
           <span className="sr-only">{label} amount</span>
           <input
             className={isPlaceholder ? "swap-leg__input--muted" : ""}
-            value={amount || "0.00"}
-            onChange={(event) => {
-              const sanitized = sanitizeNumericInput(event.target.value);
-              onFieldChange(amountField)({ target: { value: sanitized } });
-            }}
+            value={amount ?? "0.00"}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            onChange={(event) => onFieldChange(amountField)(event)}
             placeholder="0.00"
             readOnly={readOnly}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
             aria-readonly={readOnly}
           />
         </label>
@@ -596,6 +623,34 @@ function SwapModalCard() {
     }
   };
 
+  const updateNumericField = (key) => (event) => {
+    const rawValue = event.target.value;
+    const previousValue = form[key];
+    const sanitizedRaw = sanitizeNumericInput(rawValue);
+    const typedChar = event.nativeEvent?.data ?? "";
+    const isPlaceholderBefore = PLACEHOLDER_PATTERN.test(previousValue ?? "0.00");
+    let nextValue = sanitizedRaw;
+
+    if (isPlaceholderBefore && typedChar && /[\d.]/.test(typedChar)) {
+      const override = typedChar === "." ? "0." : typedChar;
+      nextValue = sanitizeNumericInput(override);
+    }
+
+    setForm((current) => ({ ...current, [key]: nextValue }));
+  };
+
+  const handleNumericFocus = (key) => () => {
+    if (PLACEHOLDER_PATTERN.test(form[key] ?? "0.00")) {
+      setForm((current) => ({ ...current, [key]: "" }));
+    }
+  };
+
+  const handleNumericBlur = (key) => () => {
+    if (!(form[key] ?? "").trim()) {
+      setForm((current) => ({ ...current, [key]: "0.00" }));
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -729,7 +784,10 @@ function SwapModalCard() {
         {
           authorizeTxId: reverseAuthorizeTxId,
           approvalTxId: reverseApprovalTxId,
-          debug: "VAMM requester prep is complete. Create the required private ALEO record now and settlement will continue automatically.",
+          debug: compactDisplayText(
+            "VAMM requester prep is complete. Create the required private ALEO record now and settlement will continue automatically.",
+            400,
+          ),
         },
       );
       return null;
@@ -1474,6 +1532,7 @@ function SwapModalCard() {
               authorizeTxId,
               approvalWalletTxId,
               approvalTxId,
+              debug: compactDisplayText(String(apiError?.message ?? apiError), 600),
             },
           );
         }
@@ -1489,10 +1548,12 @@ function SwapModalCard() {
             authorizeTxId,
             approvalWalletTxId,
             approvalTxId,
-            debug:
+            debug: compactDisplayText(
               authorizeTxId && approvalTxId
                 ? (VAMM_MAKER_API_BASE_URL ? "" : "Set VITE_VAMM_MAKER_API_BASE_URL to forward payloads to the VAMM API automatically.")
                 : "Payload includes wallet submission ids. The maker script still needs real on-chain tx ids if it verifies them on the network.",
+              400,
+            ),
           },
         );
       }
@@ -1500,7 +1561,8 @@ function SwapModalCard() {
       console.error("Requester handoff failed", error);
       setSubmitState({
         status: "error",
-        message: String(error?.message ?? error),
+        message: compactDisplayText(String(error?.message ?? error)),
+        debug: compactDisplayText(String(error?.stack ?? error?.message ?? error), 800),
       });
     }
   };
@@ -1561,7 +1623,9 @@ function SwapModalCard() {
             asset={form.assetIn}
             amountField="amountIn"
             assetField="assetIn"
-            onFieldChange={updateField}
+            onFieldChange={updateNumericField}
+            onFocus={handleNumericFocus("amountIn")}
+            onBlur={handleNumericBlur("amountIn")}
             routeLocked={routeLocked}
           />
 
@@ -1583,7 +1647,9 @@ function SwapModalCard() {
             asset={form.assetOut}
             amountField="amountOutTarget"
             assetField="assetOut"
-            onFieldChange={updateField}
+            onFieldChange={updateNumericField}
+            onFocus={handleNumericFocus("amountOutTarget")}
+            onBlur={handleNumericBlur("amountOutTarget")}
             readOnly
             routeLocked={routeLocked}
           />
@@ -1656,7 +1722,12 @@ function SwapModalCard() {
               </div>
             ) : null}
             <div className="feedback__message">{submitState.message}</div>
-            {submitState.debug ? <div className="feedback__debug">{submitState.debug}</div> : null}
+            {submitState.debug ? (
+              <details className="feedback__details">
+                <summary>Details</summary>
+                <div className="feedback__debug">{submitState.debug}</div>
+              </details>
+            ) : null}
             {handoff?.mode === VAMM_MODE_REVERSE && handoff?.reverseNeedsPrivateRecord ? (
               <div className="feedback__actions">
                 <button type="button" className="feedback__action-button" onClick={createPrivateCreditsRecordAndContinue}>

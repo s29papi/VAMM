@@ -120,7 +120,7 @@ function resolveExecutorAddress(payload) {
 }
 
 async function executeReverseRequesterPrep(payload) {
-  const requester = createContext("ALEOVEIL_TESTNET_PRIVATE_KEY");
+  const requester = createContext("ALEOVEIL_REQUESTER_PRIVATE_KEY");
   const requesterAddress = requester.account.address().to_string();
   const executorAddress = resolveExecutorAddress(payload);
   const recipientAddress = String(pickField(payload, "recipient") ?? requesterAddress);

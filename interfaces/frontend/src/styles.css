@@ -679,6 +679,9 @@ select {
 .feedback {
   font-size: 1.08rem;
   color: var(--vamm-text);
+  max-height: min(34vh, 340px);
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .feedback__message + .feedback__tx {
@@ -689,6 +692,24 @@ select {
   margin-top: 8px;
   color: var(--vamm-text-dim);
   font-size: 0.94rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.feedback__details {
+  margin-top: 8px;
+}
+
+.feedback__details summary {
+  cursor: pointer;
+  color: var(--vamm-text);
+  font-size: 0.9rem;
+  list-style: none;
+}
+
+.feedback__details summary::-webkit-details-marker {
+  display: none;
 }
 
 .feedback__actions {
@@ -714,12 +735,14 @@ select {
   font-size: 0.88rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  word-break: break-word;
 }
 
 .feedback__tx code {
   color: inherit;
   font-size: 0.94rem;
   word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .feedback--error {
@@ -745,6 +768,7 @@ select {
 .feedback__vamm-header strong {
   font-size: 1.02rem;
   color: var(--vamm-text);
+  min-width: 0;
 }
 
 .feedback__link {
