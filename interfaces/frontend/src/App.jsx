@@ -964,6 +964,7 @@ function SwapModalCard() {
             ...current,
             reverseFundingTxId: creationTxId,
             reverseExecutionStatus: "ready",
+            reverseNeedsPrivateRecord: false,
             reverseSelectedRecord: spendableRecord,
           }
           : current
@@ -1455,7 +1456,7 @@ function SwapModalCard() {
         updateSubmitState(
           setSubmitState,
           "pending",
-          "Forwarding payload to the VAMM maker API...",
+          "Sending to the market maker. This step takes a moment while execution proofs are generated.",
           {
             authorizeWalletTxId,
             authorizeTxId,
@@ -1550,11 +1551,6 @@ function SwapModalCard() {
       <header className="swap-modal__header">
         <div>
           <h1>Swap</h1>
-          <p className="swap-modal__subtitle">
-            {isReverseMode
-              ? "Reverse mode asks VAMM to prepare the payload, then the wallet executes settlement."
-              : "Current mode keeps the existing requester-led USDCx -> ALEO flow intact."}
-          </p>
         </div>
       </header>
 
@@ -1722,20 +1718,8 @@ function SwapModalCard() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {handoff.reverseSettlementTxId}
-                </a>
-              </div>
-            ) : null}
-            {handoff?.mode === VAMM_MODE_REVERSE && handoff?.reverseFundingTxId ? (
-              <div className="feedback__tx">
-                <span>private record creation tx</span>
-                <a
-                  className="feedback__link"
-                  href={buildProvableExplorerTransactionUrl(handoff.reverseFundingTxId)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {handoff.reverseFundingTxId}
+                  <span>{handoff.reverseSettlementTxId}</span>
+                  <span className="feedback__link-icon" aria-hidden="true">↗</span>
                 </a>
               </div>
             ) : null}
@@ -1748,32 +1732,37 @@ function SwapModalCard() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {handoff.makerExecution.result.settlementTx}
+                  <span>{handoff.makerExecution.result.settlementTx}</span>
+                  <span className="feedback__link-icon" aria-hidden="true">↗</span>
                 </a>
               </div>
             ) : null}
             {submitState.authorizeTxId ? (
               <div className="feedback__tx">
                 <span>authorize_order chain tx</span>
-                <code>{submitState.authorizeTxId}</code>
-              </div>
-            ) : null}
-            {submitState.authorizeWalletTxId ? (
-              <div className="feedback__tx">
-                <span>authorize_order wallet tx</span>
-                <code>{submitState.authorizeWalletTxId}</code>
+                <a
+                  className="feedback__link"
+                  href={buildProvableExplorerTransactionUrl(submitState.authorizeTxId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span>{submitState.authorizeTxId}</span>
+                  <span className="feedback__link-icon" aria-hidden="true">↗</span>
+                </a>
               </div>
             ) : null}
             {submitState.approvalTxId ? (
               <div className="feedback__tx">
                 <span>approve_public chain tx</span>
-                <code>{submitState.approvalTxId}</code>
-              </div>
-            ) : null}
-            {submitState.approvalWalletTxId ? (
-              <div className="feedback__tx">
-                <span>approve_public wallet tx</span>
-                <code>{submitState.approvalWalletTxId}</code>
+                <a
+                  className="feedback__link"
+                  href={buildProvableExplorerTransactionUrl(submitState.approvalTxId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span>{submitState.approvalTxId}</span>
+                  <span className="feedback__link-icon" aria-hidden="true">↗</span>
+                </a>
               </div>
             ) : null}
           </section>
