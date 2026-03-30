@@ -1780,7 +1780,15 @@ function VammSwapShell() {
         <WalletToolbar />
       </div>
       <div className="page-center">
-        <SwapModalCard />
+        <div className="page-center__stack">
+          <aside className="notice-card" aria-label="Liquidity note">
+            <span className="notice-card__icon" aria-hidden="true">N.B.</span>
+            <p>
+              Both ALEO and USDCx are faucet-sourced and capped at 20 tokens each. The market maker also draws from these reserves, so please keep requests small to avoid exhausting available funds.
+            </p>
+          </aside>
+          <SwapModalCard />
+        </div>
       </div>
     </main>
   );

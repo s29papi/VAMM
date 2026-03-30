@@ -157,6 +157,25 @@ select {
   place-items: center;
 }
 
+.page-center__stack {
+  width: min(760px, 100%);
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.page-center__stack .notice-card {
+  width: min(660px, 100%);
+  border-radius: 18px;
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  background: rgba(16, 24, 32, 0.42);
+}
+
+.page-center__stack .notice-card p {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .page-wallet-button {
   min-height: 0;
 }
