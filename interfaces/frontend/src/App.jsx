@@ -46,6 +46,8 @@ const EXPIRY_PRESETS = [
 ];
 const DEFAULT_TRANSACTION_FEE = 300_000;
 const DEFAULT_VAMM_STRATEGY = getDefaultVammStrategy();
+const MAX_FORWARD_USDCX_SWAP = 0.05;
+const MAX_USDCX_SWAP_OUT = 3;
 const VAMM_FRONTEND_DEFAULTS = {
   network: "Aleo testnet",
   settlementStrategy: DEFAULT_VAMM_STRATEGY.label,
@@ -404,6 +406,8 @@ function formatNumericDisplay(value, decimals = 6) {
 
 function SwapLeg({
   label,
+  hint,
+  hintTone = "default",
   amount,
   asset,
   amountField,
@@ -417,7 +421,10 @@ function SwapLeg({
   const isPlaceholder = !amount || PLACEHOLDER_PATTERN.test(amount);
   return (
     <section className="swap-leg">
-      <div className="swap-leg__label">{label}</div>
+      <div className="swap-leg__label">
+        <span>{label}</span>
+        {hint ? <span className={`swap-leg__hint swap-leg__hint--${hintTone}`}>{hint}</span> : null}
+      </div>
       <div className="swap-leg__row">
         <label className="swap-leg__amount">
           <span className="sr-only">{label} amount</span>
@@ -685,11 +692,50 @@ function SwapModalCard() {
     }));
   }, [form.amountIn, form.triggerPrice, form.assetIn, form.assetOut]);
 
-  const payoutBoundsTarget = isReverseMode ? form.amountIn : form.amountOutTarget;
+  const reverseUsdcxBuyAmount = Number(form.amountOutTarget);
+  const reverseUsdcxOutCapActive = isReverseMode && form.assetOut === "USDCx";
+  const reverseUsdcxOutCapExceeded =
+    reverseUsdcxOutCapActive &&
+    Number.isFinite(reverseUsdcxBuyAmount) &&
+    reverseUsdcxBuyAmount > MAX_USDCX_SWAP_OUT;
+  const forwardUsdcxSellAmount = Number(form.amountIn);
+  const forwardUsdcxSellCapActive = !isReverseMode && form.assetIn === "USDCx";
+  const forwardUsdcxSellCapExceeded =
+    forwardUsdcxSellCapActive &&
+    Number.isFinite(forwardUsdcxSellAmount) &&
+    forwardUsdcxSellAmount > MAX_FORWARD_USDCX_SWAP;
+  const lastValidReversePayoutTargetRef = useRef(form.amountIn);
+
+  useEffect(() => {
+    if (!reverseUsdcxOutCapActive) {
+      lastValidReversePayoutTargetRef.current = form.amountIn;
+      return;
+    }
+
+    if (!reverseUsdcxOutCapExceeded) {
+      lastValidReversePayoutTargetRef.current = form.amountIn;
+    }
+  }, [form.amountIn, reverseUsdcxOutCapActive, reverseUsdcxOutCapExceeded]);
+
+  const payoutBoundsTarget = isReverseMode
+    ? reverseUsdcxOutCapExceeded
+      ? lastValidReversePayoutTargetRef.current
+      : form.amountIn
+    : form.amountOutTarget;
   const payoutBounds = useMemo(
     () => deriveSymmetricPayoutBounds(payoutBoundsTarget, form.requesterTolerancePct),
     [payoutBoundsTarget, form.requesterTolerancePct],
   );
+  const buyLegHint = reverseUsdcxOutCapActive
+    ? reverseUsdcxOutCapExceeded
+      ? `This exceeds the ${formatNumericDisplay(MAX_USDCX_SWAP_OUT)} USDCx cap.`
+      : `Max USDCx out: ${formatNumericDisplay(MAX_USDCX_SWAP_OUT)} per swap`
+    : null;
+  const sellLegHint = forwardUsdcxSellCapActive
+    ? forwardUsdcxSellCapExceeded
+      ? `This exceeds the ${formatNumericDisplay(MAX_FORWARD_USDCX_SWAP)} USDCx cap.`
+      : `Cap: ${formatNumericDisplay(MAX_FORWARD_USDCX_SWAP)} USDCx per swap`
+    : null;
 
   const flipAssets = () => {
     setExecutionMode((current) => (
@@ -1172,6 +1218,14 @@ function SwapModalCard() {
       return;
     }
 
+    if (sellAmount > MAX_FORWARD_USDCX_SWAP) {
+      setSubmitState({
+        status: "error",
+        message: `USDCx swaps to ALEO are capped at ${formatNumericDisplay(MAX_FORWARD_USDCX_SWAP)} USDCx per order.`,
+      });
+      return;
+    }
+
     if (!Number.isFinite(minPayout) || !Number.isFinite(maxPayout) || maxPayout <= 0 || minPayout < 0) {
       setSubmitState({ status: "error", message: "The requester payout band must produce a valid ALEO range." });
       return;
@@ -1593,6 +1647,8 @@ function SwapModalCard() {
         <div className="swap-legs">
           <SwapLeg
             label="Sell"
+            hint={sellLegHint}
+            hintTone={forwardUsdcxSellCapExceeded ? "warning" : "default"}
             amount={form.amountIn}
             asset={form.assetIn}
             amountField="amountIn"
@@ -1617,6 +1673,8 @@ function SwapModalCard() {
 
           <SwapLeg
             label="Buy"
+            hint={buyLegHint}
+            hintTone={reverseUsdcxOutCapExceeded ? "warning" : "default"}
             amount={form.amountOutTarget}
             asset={form.assetOut}
             amountField="amountOutTarget"
@@ -1785,6 +1843,7 @@ function VammSwapShell() {
             <span className="notice-card__icon" aria-hidden="true">N.B.</span>
             <p>
               Both ALEO and USDCx are faucet-sourced and capped at 20 tokens each. The market maker also draws from these reserves, so please keep requests small to avoid exhausting available funds.
+              Swapping out USDCx is capped at 0.05 USDCx per swap.
             </p>
           </aside>
           <SwapModalCard />

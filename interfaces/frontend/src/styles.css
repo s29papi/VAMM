@@ -417,8 +417,21 @@ select {
 }
 
 .swap-leg__label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  flex-wrap: wrap;
   color: var(--vamm-text-dim);
   font-size: 1.32rem;
+}
+
+.swap-leg__hint {
+  font-size: 0.88rem;
+}
+
+.swap-leg__hint--warning {
+  color: #fbbf24;
 }
 
 .swap-leg {
